@@ -6,6 +6,9 @@ let dailyStats = {
     totalRevenue: 0
 };
 
+// Reporting state
+let currentReport = { type: null, rows: [], columns: [] };
+
 // Static UPI ID (can be changed)
 const UPI_ID = 'yourstore@upi';
 
@@ -140,6 +143,18 @@ function loadData() {
     
     if (savedBills) {
         generatedBills = JSON.parse(savedBills);
+        // Add timestamp to existing bills if missing for reliable reporting
+        let mutated = false;
+        generatedBills.forEach(bill => {
+            if (!bill.timestamp) {
+                const parsed = Date.parse(bill.date);
+                bill.timestamp = Number.isNaN(parsed) ? Date.now() : parsed;
+                mutated = true;
+            }
+        });
+        if (mutated) {
+            saveData();
+        }
         renderBillsHistory();
     }
     
@@ -290,6 +305,7 @@ function generateBill() {
     const bill = {
         id: Date.now(),
         date: new Date().toLocaleString(),
+        timestamp: Date.now(),
         items: [...currentBillItems],
         total: total
     };
@@ -387,6 +403,204 @@ function updateDailySummary() {
     document.getElementById('totalRevenue').textContent = `₹${dailyStats.totalRevenue.toFixed(2)}`;
 }
 
+// =========================
+// Reports
+// =========================
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function initializeReports() {
+    populateReportSelectors();
+
+    const typeEl = document.getElementById('reportType');
+    const yearGroup = document.getElementById('reportYearGroup');
+    const monthGroup = document.getElementById('reportMonthGroup');
+    const yearEl = document.getElementById('reportYear');
+    const monthEl = document.getElementById('reportMonth');
+
+    typeEl.addEventListener('change', () => {
+        const isMonth = typeEl.value === 'month';
+        yearGroup.style.display = 'block';
+        monthGroup.style.display = isMonth ? 'block' : 'none';
+    });
+
+    document.getElementById('generateReportBtn').addEventListener('click', () => {
+        generateReport();
+    });
+
+    document.getElementById('downloadExcelBtn').addEventListener('click', () => {
+        downloadExcel();
+    });
+
+    // Default view: current year month-wise
+    if (yearEl.options.length > 0) {
+        const currentYear = new Date().getFullYear().toString();
+        if ([...yearEl.options].some(o => o.value === currentYear)) {
+            yearEl.value = currentYear;
+        }
+    }
+    populateMonths(monthEl);
+}
+
+function populateReportSelectors() {
+    const years = getAvailableYears();
+    const yearEl = document.getElementById('reportYear');
+    yearEl.innerHTML = '';
+    years.forEach(y => {
+        const opt = document.createElement('option');
+        opt.value = y.toString();
+        opt.textContent = y.toString();
+        yearEl.appendChild(opt);
+    });
+    const monthEl = document.getElementById('reportMonth');
+    populateMonths(monthEl);
+}
+
+function populateMonths(selectEl) {
+    selectEl.innerHTML = '';
+    MONTHS.forEach((m, idx) => {
+        const opt = document.createElement('option');
+        opt.value = (idx + 1).toString();
+        opt.textContent = m;
+        selectEl.appendChild(opt);
+    });
+}
+
+function getAvailableYears() {
+    const years = new Set();
+    generatedBills.forEach(b => {
+        const d = getBillDate(b);
+        if (d) years.add(d.getFullYear());
+    });
+    const arr = Array.from(years).sort();
+    if (arr.length === 0) {
+        arr.push(new Date().getFullYear());
+    }
+    return arr;
+}
+
+function getBillDate(bill) {
+    if (bill.timestamp) return new Date(bill.timestamp);
+    const parsed = Date.parse(bill.date);
+    return Number.isNaN(parsed) ? null : new Date(parsed);
+}
+
+function generateReport() {
+    const type = document.getElementById('reportType').value;
+    const yearVal = document.getElementById('reportYear').value;
+    const monthVal = document.getElementById('reportMonth').value;
+
+    if (type === 'year') {
+        const rows = buildYearlyReport();
+        currentReport = { type: 'year', rows, columns: ['Year','Total Bills','Total Revenue (₹)'] };
+        renderReportTable(rows, currentReport.columns);
+    } else {
+        const year = parseInt(yearVal, 10) || new Date().getFullYear();
+        const rows = buildMonthlyReport(year);
+        currentReport = { type: 'month', rows, columns: ['Month','Total Bills','Total Revenue (₹)'] };
+        renderReportTable(rows, currentReport.columns);
+    }
+    document.getElementById('downloadExcelBtn').disabled = currentReport.rows.length === 0;
+}
+
+function buildYearlyReport() {
+    const yearMap = new Map();
+    generatedBills.forEach(b => {
+        const d = getBillDate(b);
+        if (!d) return;
+        const y = d.getFullYear();
+        if (!yearMap.has(y)) yearMap.set(y, { totalBills: 0, totalRevenue: 0 });
+        const agg = yearMap.get(y);
+        agg.totalBills += 1;
+        agg.totalRevenue += b.total;
+    });
+    const rows = Array.from(yearMap.entries())
+        .sort((a,b) => a[0]-b[0])
+        .map(([year, agg]) => ({
+            'Year': year,
+            'Total Bills': agg.totalBills,
+            'Total Revenue (₹)': Number(agg.totalRevenue.toFixed(2))
+        }));
+    return rows;
+}
+
+function buildMonthlyReport(year) {
+    const months = Array.from({ length: 12 }, (_, i) => ({ totalBills: 0, totalRevenue: 0 }));
+    generatedBills.forEach(b => {
+        const d = getBillDate(b);
+        if (!d) return;
+        if (d.getFullYear() !== year) return;
+        const m = d.getMonth(); // 0-11
+        months[m].totalBills += 1;
+        months[m].totalRevenue += b.total;
+    });
+    const rows = months.map((agg, idx) => ({
+        'Month': `${MONTHS[idx]} ${year}`,
+        'Total Bills': agg.totalBills,
+        'Total Revenue (₹)': Number(agg.totalRevenue.toFixed(2))
+    }));
+    return rows;
+}
+
+function renderReportTable(rows, columns) {
+    const container = document.getElementById('reportsTable');
+    if (!rows || rows.length === 0) {
+        container.innerHTML = '<p class="empty-state">No data available for the selected period.</p>';
+        return;
+    }
+    let html = '<table class="report-table"><thead><tr>';
+    columns.forEach(col => { html += `<th>${col}</th>`; });
+    html += '</tr></thead><tbody>';
+    rows.forEach(r => {
+        html += '<tr>';
+        columns.forEach(col => { html += `<td>${r[col]}</td>`; });
+        html += '</tr>';
+    });
+    html += '</tbody>';
+    const totals = rows.reduce((acc, r) => {
+        acc.bills += (r['Total Bills'] || 0);
+        acc.revenue += (r['Total Revenue (₹)'] || 0);
+        return acc;
+    }, { bills: 0, revenue: 0 });
+    html += `<tfoot><tr><td><strong>Total</strong></td><td>${totals.bills}</td><td>₹${totals.revenue.toFixed(2)}</td></tr></tfoot>`;
+    html += '</table>';
+    container.innerHTML = html;
+}
+
+function downloadExcel() {
+    if (!currentReport || !currentReport.rows || currentReport.rows.length === 0) return;
+    try {
+        const ws = XLSX.utils.json_to_sheet(currentReport.rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, currentReport.type === 'year' ? 'Yearly' : 'Monthly');
+        const fname = currentReport.type === 'year'
+            ? `report_years_${new Date().toISOString().slice(0,10)}.xlsx`
+            : `report_months_${new Date().toISOString().slice(0,10)}.xlsx`;
+        XLSX.writeFile(wb, fname);
+    } catch (e) {
+        alert('Excel export failed. Please try again.');
+        // eslint-disable-next-line no-console
+        console.error(e);
+    }
+}
+
+// =========================
+// Theme
+// =========================
+function initializeTheme() {
+    const mode = localStorage.getItem('themeMode') || 'default';
+    if (mode === 'calm') document.body.classList.add('calm');
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) {
+        btn.textContent = document.body.classList.contains('calm') ? 'Default Theme' : 'Calm Theme';
+        btn.addEventListener('click', () => {
+            document.body.classList.toggle('calm');
+            const isCalm = document.body.classList.contains('calm');
+            localStorage.setItem('themeMode', isCalm ? 'calm' : 'default');
+            btn.textContent = isCalm ? 'Default Theme' : 'Calm Theme';
+        });
+    }
+}
+
 // Copy UPI ID to clipboard
 function copyUPI() {
     const upiId = document.getElementById('upiId').textContent;
@@ -438,6 +652,8 @@ function showToast(message) {
 document.addEventListener('DOMContentLoaded', function() {
     loadData();
     initializeProducts();
+    initializeReports();
+    initializeTheme();
     
     // Enter key support for form fields
     document.getElementById('quantity').addEventListener('keypress', function(e) {
