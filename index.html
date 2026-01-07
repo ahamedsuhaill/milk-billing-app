@@ -13,6 +13,9 @@
                 <img src="https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&auto=format&fit=crop" alt="Milk & Ice Cream" class="hero-image">
             </div>
             <h1>🥛🍦 Milk & Ice-Cream Billing</h1>
+            <div class="header-actions">
+                <button class="btn btn-secondary" id="themeToggleBtn">Calm Theme</button>
+            </div>
             <div class="daily-summary">
                 <h3>Daily Summary</h3>
                 <div class="summary-stats">
@@ -98,6 +101,32 @@
                 </div>
             </section>
 
+            <section class="reports-section">
+                <h2>Reports</h2>
+                <div class="reports-controls">
+                    <div class="form-group">
+                        <label for="reportType">Report Type</label>
+                        <select id="reportType">
+                            <option value="month">Month-wise</option>
+                            <option value="year">Year-wise</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="reportYearGroup">
+                        <label for="reportYear">Year</label>
+                        <select id="reportYear"></select>
+                    </div>
+                    <div class="form-group" id="reportMonthGroup">
+                        <label for="reportMonth">Month</label>
+                        <select id="reportMonth"></select>
+                    </div>
+                    <div class="report-actions">
+                        <button class="btn btn-primary" id="generateReportBtn">Generate Report</button>
+                        <button class="btn btn-success" id="downloadExcelBtn" disabled>Download Excel</button>
+                    </div>
+                </div>
+                <div id="reportsTable"></div>
+            </section>
+
             <section class="bills-history">
                 <h2>Generated Bills</h2>
                 <div id="billsHistory"></div>
@@ -140,6 +169,7 @@
         </main>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
